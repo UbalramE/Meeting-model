@@ -27,12 +27,12 @@ import {
   Zap,
   Plus,
   X,
-  GripVertical,
   TrendingUp,
   Target,
   FileText,
   Users,
   Calendar,
+  Clock,
 } from "lucide-react"
 
 interface CallDialogProps {
@@ -57,8 +57,6 @@ interface InsightPanel {
   title: string
   icon: React.ComponentType<{ className?: string }>
   type: "sentiment" | "analytics" | "keywords" | "actions" | "summary" | "participants" | "timeline"
-  height: number
-  isCollapsed: boolean
 }
 
 interface InsightData {
@@ -73,7 +71,7 @@ interface InsightData {
 
 export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100 } }: CallDialogProps) {
   const [position, setPosition] = useState(initialPosition)
-  const [size, setSize] = useState({ width: 1000, height: 700 })
+  const [size, setSize] = useState({ width: 1200, height: 800 })
   const [windowState, setWindowState] = useState<WindowState>("normal")
   const [callState, setCallState] = useState<CallState>("idle")
   const [isMuted, setIsMuted] = useState(false)
@@ -82,24 +80,21 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
   const [isResizing, setIsResizing] = useState(false)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
   const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 0, height: 0 })
-  const [transcriptionWidth, setTranscriptionWidth] = useState(500)
-  const [isResizingTranscription, setIsResizingTranscription] = useState(false)
-  const [resizeTranscriptionStart, setResizeTranscriptionStart] = useState({ x: 0, width: 0 })
 
   const dialogRef = useRef<HTMLDivElement>(null)
   const resizeRef = useRef<HTMLDivElement>(null)
-  const transcriptionResizeRef = useRef<HTMLDivElement>(null)
 
-  // Default insight panels
+  // Insight panels - maximum 4 panels
   const [insightPanels, setInsightPanels] = useState<InsightPanel[]>([
-    { id: "sentiment", title: "Sentiment", icon: BarChart3, type: "sentiment", height: 120, isCollapsed: false },
-    { id: "analytics", title: "Analytics", icon: TrendingUp, type: "analytics", height: 150, isCollapsed: false },
-    { id: "keywords", title: "Keywords", icon: Zap, type: "keywords", height: 100, isCollapsed: false },
-    { id: "actions", title: "Actions", icon: Target, type: "actions", height: 180, isCollapsed: false },
+    { id: "sentiment", title: "Sentiment Analysis", icon: BarChart3, type: "sentiment" },
   ])
 
   // Available panel types for adding
   const availablePanelTypes = [
+    { type: "sentiment" as const, title: "Sentiment Analysis", icon: BarChart3 },
+    { type: "analytics" as const, title: "Call Analytics", icon: TrendingUp },
+    { type: "keywords" as const, title: "Keywords", icon: Zap },
+    { type: "actions" as const, title: "Action Items", icon: Target },
     { type: "summary" as const, title: "AI Summary", icon: FileText },
     { type: "participants" as const, title: "Participants", icon: Users },
     { type: "timeline" as const, title: "Timeline", icon: Calendar },
@@ -110,51 +105,100 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
     {
       id: "1",
       speaker: "John Doe",
-      text: "Hello everyone, thanks for joining today's call. Let's start by reviewing the quarterly results.",
+      text: "Hello everyone, thanks for joining today's call. Let's start by reviewing the quarterly results and discussing our progress.",
       timestamp: "10:30:15",
       confidence: 0.95,
     },
     {
       id: "2",
       speaker: "Sarah Smith",
-      text: "Great! I have the numbers ready. Our revenue increased by 23% this quarter.",
+      text: "Great! I have the numbers ready. Our revenue increased by 23% this quarter, which exceeds our initial projections.",
       timestamp: "10:30:45",
       confidence: 0.92,
+    },
+    {
+      id: "3",
+      speaker: "Mike Johnson",
+      text: "That's fantastic news! The marketing campaign really paid off. We should analyze what worked best.",
+      timestamp: "10:31:20",
+      confidence: 0.89,
     },
   ])
 
   // Mock insights data
   const insights: InsightData = {
     sentiment: "positive",
-    keywords: ["revenue", "quarterly", "results", "growth", "performance", "team", "success", "metrics"],
-    topics: ["Financial Performance", "Quarterly Review", "Revenue Growth", "Team Performance"],
-    actionItems: [
-      "Follow up on Q4 projections",
-      "Schedule team meeting for next week",
-      "Prepare detailed revenue breakdown",
-      "Review marketing strategy",
-      "Update stakeholder presentation",
+    keywords: [
+      "revenue",
+      "quarterly",
+      "results",
+      "growth",
+      "performance",
+      "team",
+      "success",
+      "metrics",
+      "campaign",
+      "projections",
     ],
-    summary: "Positive quarterly review discussing 23% revenue growth and planning next steps for continued success.",
+    topics: ["Financial Performance", "Quarterly Review", "Revenue Growth", "Team Performance", "Marketing Analysis"],
+    actionItems: [
+      "Follow up on Q4 projections and budget planning",
+      "Schedule team meeting for next week to discuss strategy",
+      "Prepare detailed revenue breakdown for stakeholders",
+      "Review marketing campaign effectiveness metrics",
+      "Update stakeholder presentation with new data",
+      "Analyze competitor performance in the same period",
+    ],
+    summary:
+      "Positive quarterly review discussing 23% revenue growth, successful marketing campaigns, and strategic planning for continued success in the upcoming quarter.",
     participants: [
-      { name: "John Doe", speakingTime: 60, sentiment: "positive" },
-      { name: "Sarah Smith", speakingTime: 40, sentiment: "positive" },
+      { name: "John Doe", speakingTime: 45, sentiment: "positive" },
+      { name: "Sarah Smith", speakingTime: 35, sentiment: "positive" },
+      { name: "Mike Johnson", speakingTime: 20, sentiment: "enthusiastic" },
     ],
     timeline: [
-      { time: "10:30", event: "John Doe joined", type: "join" },
-      { time: "10:31", event: "Sarah Smith joined", type: "join" },
+      { time: "10:30", event: "John Doe joined the call", type: "join" },
+      { time: "10:31", event: "Sarah Smith joined the call", type: "join" },
+      { time: "10:31", event: "Mike Johnson joined the call", type: "join" },
       { time: "10:35", event: "Screen sharing started", type: "action" },
+      { time: "10:40", event: "Quarterly report presented", type: "action" },
     ],
   }
+
+  // Calculate layout based on number of panels
+  const getLayoutConfig = () => {
+    const panelCount = insightPanels.length
+
+    if (panelCount === 0) {
+      return { transcriptionWidth: 100, insightColumns: 0, insightRows: 0 }
+    } else if (panelCount === 1) {
+      return { transcriptionWidth: 50, insightColumns: 1, insightRows: 1 }
+    } else if (panelCount <= 2) {
+      return { transcriptionWidth: 33.33, insightColumns: 1, insightRows: 2 }
+    } else if (panelCount <= 4) {
+      return { transcriptionWidth: 33.33, insightColumns: 2, insightRows: 2 }
+    }
+    return { transcriptionWidth: 33.33, insightColumns: 2, insightRows: 2 }
+  }
+
+  const layoutConfig = getLayoutConfig()
 
   // Simulate live transcription
   useEffect(() => {
     if (callState === "active") {
       const interval = setInterval(() => {
+        const speakers = ["John Doe", "Sarah Smith", "Mike Johnson"]
+        const sampleTexts = [
+          "This is a simulated live transcription entry with real-time content updates...",
+          "We're seeing great progress on our key metrics and performance indicators.",
+          "Let's discuss the next steps and action items for the upcoming quarter.",
+          "The data shows significant improvement in customer satisfaction scores.",
+        ]
+
         const newTranscription: TranscriptionEntry = {
           id: Date.now().toString(),
-          speaker: Math.random() > 0.5 ? "John Doe" : "Sarah Smith",
-          text: "This is a simulated live transcription entry with more detailed content...",
+          speaker: speakers[Math.floor(Math.random() * speakers.length)],
+          text: sampleTexts[Math.floor(Math.random() * sampleTexts.length)],
           timestamp: new Date().toLocaleTimeString(),
           confidence: 0.85 + Math.random() * 0.15,
         }
@@ -175,16 +219,6 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
     })
   }
 
-  // Transcription panel resize handlers
-  const handleTranscriptionResizeStart = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    setIsResizingTranscription(true)
-    setResizeTranscriptionStart({
-      x: e.clientX,
-      width: transcriptionWidth,
-    })
-  }
-
   const handleMouseMove = (e: MouseEvent) => {
     if (isDragging && windowState !== "maximized") {
       setPosition({
@@ -193,23 +227,15 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
       })
     }
     if (isResizing) {
-      const newWidth = Math.max(600, resizeStart.width + (e.clientX - resizeStart.x))
-      const newHeight = Math.max(400, resizeStart.height + (e.clientY - resizeStart.y))
+      const newWidth = Math.max(800, resizeStart.width + (e.clientX - resizeStart.x))
+      const newHeight = Math.max(600, resizeStart.height + (e.clientY - resizeStart.y))
       setSize({ width: newWidth, height: newHeight })
-    }
-    if (isResizingTranscription) {
-      const newWidth = Math.max(
-        300,
-        Math.min(size.width - 350, resizeTranscriptionStart.width + (e.clientX - resizeTranscriptionStart.x)),
-      )
-      setTranscriptionWidth(newWidth)
     }
   }
 
   const handleMouseUp = () => {
     setIsDragging(false)
     setIsResizing(false)
-    setIsResizingTranscription(false)
   }
 
   // Main window resize handlers
@@ -225,7 +251,7 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
   }
 
   useEffect(() => {
-    if (isDragging || isResizing || isResizingTranscription) {
+    if (isDragging || isResizing) {
       document.addEventListener("mousemove", handleMouseMove)
       document.addEventListener("mouseup", handleMouseUp)
       return () => {
@@ -233,7 +259,7 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
         document.removeEventListener("mouseup", handleMouseUp)
       }
     }
-  }, [isDragging, isResizing, isResizingTranscription, dragStart, resizeStart, resizeTranscriptionStart])
+  }, [isDragging, isResizing, dragStart, resizeStart])
 
   const handleMinimize = () => {
     setWindowState("minimized")
@@ -260,6 +286,8 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
 
   // Panel management functions
   const addPanel = (type: InsightPanel["type"]) => {
+    if (insightPanels.length >= 4) return // Maximum 4 panels
+
     const panelType = availablePanelTypes.find((p) => p.type === type)
     if (!panelType) return
 
@@ -268,8 +296,6 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
       title: panelType.title,
       icon: panelType.icon,
       type,
-      height: 150,
-      isCollapsed: false,
     }
     setInsightPanels((prev) => [...prev, newPanel])
   }
@@ -278,70 +304,14 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
     setInsightPanels((prev) => prev.filter((p) => p.id !== panelId))
   }
 
-  const togglePanelCollapse = (panelId: string) => {
-    setInsightPanels((prev) => prev.map((p) => (p.id === panelId ? { ...p, isCollapsed: !p.isCollapsed } : p)))
-  }
-
-  const resizePanel = (panelId: string, newHeight: number) => {
-    setInsightPanels((prev) => prev.map((p) => (p.id === panelId ? { ...p, height: Math.max(80, newHeight) } : p)))
-  }
-
-  // Panel resize component
-  const PanelResizeHandle = ({ panelId }: { panelId: string }) => {
-    const [isResizingPanel, setIsResizingPanel] = useState(false)
-    const [resizePanelStart, setResizePanelStart] = useState({ y: 0, height: 0 })
-
-    const handlePanelResizeStart = (e: React.MouseEvent) => {
-      e.stopPropagation()
-      setIsResizingPanel(true)
-      const panel = insightPanels.find((p) => p.id === panelId)
-      setResizePanelStart({
-        y: e.clientY,
-        height: panel?.height || 150,
-      })
-    }
-
-    useEffect(() => {
-      const handlePanelMouseMove = (e: MouseEvent) => {
-        if (isResizingPanel) {
-          const newHeight = resizePanelStart.height + (e.clientY - resizePanelStart.y)
-          resizePanel(panelId, newHeight)
-        }
-      }
-
-      const handlePanelMouseUp = () => {
-        setIsResizingPanel(false)
-      }
-
-      if (isResizingPanel) {
-        document.addEventListener("mousemove", handlePanelMouseMove)
-        document.addEventListener("mouseup", handlePanelMouseUp)
-        return () => {
-          document.removeEventListener("mousemove", handlePanelMouseMove)
-          document.removeEventListener("mouseup", handlePanelMouseUp)
-        }
-      }
-    }, [isResizingPanel, resizePanelStart, panelId])
-
-    return (
-      <div
-        className="h-2 cursor-row-resize hover:bg-blue-200 transition-colors flex items-center justify-center group"
-        onMouseDown={handlePanelResizeStart}
-      >
-        <GripHorizontal className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-      </div>
-    )
-  }
-
   // Render panel content based on type
   const renderPanelContent = (panel: InsightPanel) => {
-    if (panel.isCollapsed) return null
-
     switch (panel.type) {
       case "sentiment":
         return (
-          <div className="p-3 space-y-3">
-            <div className="flex items-center gap-2">
+          <div className="p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="font-medium text-sm">Overall Sentiment</h4>
               <Badge
                 variant={insights.sentiment === "positive" ? "default" : "secondary"}
                 className={insights.sentiment === "positive" ? "bg-green-100 text-green-800 border-green-200" : ""}
@@ -349,38 +319,63 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
                 {insights.sentiment.charAt(0).toUpperCase() + insights.sentiment.slice(1)}
               </Badge>
             </div>
-            <div className="w-full bg-muted rounded-full h-2">
-              <div
-                className="bg-green-500 h-2 rounded-full transition-all duration-500"
-                style={{ width: insights.sentiment === "positive" ? "75%" : "45%" }}
-              ></div>
+            <div className="space-y-3">
+              <div className="w-full bg-muted rounded-full h-3">
+                <div
+                  className="bg-green-500 h-3 rounded-full transition-all duration-500"
+                  style={{ width: insights.sentiment === "positive" ? "85%" : "45%" }}
+                ></div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <div className="text-lg font-bold text-green-600">85%</div>
+                  <div className="text-xs text-muted-foreground">Positive</div>
+                </div>
+                <div>
+                  <div className="text-lg font-bold text-yellow-600">12%</div>
+                  <div className="text-xs text-muted-foreground">Neutral</div>
+                </div>
+                <div>
+                  <div className="text-lg font-bold text-red-600">3%</div>
+                  <div className="text-xs text-muted-foreground">Negative</div>
+                </div>
+              </div>
             </div>
           </div>
         )
 
       case "analytics":
         return (
-          <div className="p-3 space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="text-center">
-                <div className="text-lg font-bold">05:23</div>
+          <div className="p-4 space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="text-center p-3 bg-background rounded-lg border">
+                <div className="flex items-center justify-center mb-2">
+                  <Clock className="w-4 h-4 text-blue-500" />
+                </div>
+                <div className="text-xl font-bold">05:23</div>
                 <div className="text-xs text-muted-foreground">Duration</div>
               </div>
-              <div className="text-center">
-                <div className="text-lg font-bold">3</div>
-                <div className="text-xs text-muted-foreground">People</div>
+              <div className="text-center p-3 bg-background rounded-lg border">
+                <div className="flex items-center justify-center mb-2">
+                  <Users className="w-4 h-4 text-green-500" />
+                </div>
+                <div className="text-xl font-bold">3</div>
+                <div className="text-xs text-muted-foreground">Participants</div>
               </div>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-3">
+              <h5 className="font-medium text-sm">Speaking Time</h5>
               {insights.participants.map((participant, index) => (
-                <div key={index}>
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="text-xs">{participant.name}</span>
-                    <span className="text-xs text-muted-foreground">{participant.speakingTime}%</span>
+                <div key={index} className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">{participant.name}</span>
+                    <span className="text-sm text-muted-foreground">{participant.speakingTime}%</span>
                   </div>
-                  <div className="w-full bg-muted rounded-full h-1.5">
+                  <div className="w-full bg-muted rounded-full h-2">
                     <div
-                      className={`h-1.5 rounded-full transition-all duration-500 ${index === 0 ? "bg-blue-500" : "bg-purple-500"}`}
+                      className={`h-2 rounded-full transition-all duration-500 ${
+                        index === 0 ? "bg-blue-500" : index === 1 ? "bg-purple-500" : "bg-orange-500"
+                      }`}
                       style={{ width: `${participant.speakingTime}%` }}
                     ></div>
                   </div>
@@ -392,12 +387,22 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
 
       case "keywords":
         return (
-          <div className="p-3">
-            <div className="flex flex-wrap gap-1.5">
-              {insights.keywords.slice(0, 8).map((keyword, index) => (
-                <Badge key={index} variant="secondary" className="text-xs py-0.5 px-2">
+          <div className="p-4 space-y-4">
+            <h4 className="font-medium text-sm">Key Topics</h4>
+            <div className="flex flex-wrap gap-2">
+              {insights.keywords.map((keyword, index) => (
+                <Badge key={index} variant="secondary" className="text-xs">
                   {keyword}
                 </Badge>
+              ))}
+            </div>
+            <div className="space-y-2">
+              <h5 className="font-medium text-sm">Main Topics</h5>
+              {insights.topics.map((topic, index) => (
+                <div key={index} className="flex items-center gap-2 p-2 bg-background rounded border">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                  <span className="text-sm">{topic}</span>
+                </div>
               ))}
             </div>
           </div>
@@ -405,59 +410,93 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
 
       case "actions":
         return (
-          <div className="p-3 space-y-2">
-            {insights.actionItems.slice(0, 4).map((action, index) => (
-              <div key={index} className="flex items-start gap-2 p-2 bg-background rounded border text-xs">
-                <div className="w-3 h-3 border rounded mt-0.5 flex-shrink-0"></div>
-                <span className="leading-relaxed">{action}</span>
-              </div>
-            ))}
+          <div className="p-4 space-y-4">
+            <h4 className="font-medium text-sm">Action Items</h4>
+            <div className="space-y-2">
+              {insights.actionItems.map((action, index) => (
+                <div key={index} className="flex items-start gap-3 p-3 bg-background rounded border">
+                  <div className="w-4 h-4 border-2 border-muted-foreground rounded mt-0.5 flex-shrink-0"></div>
+                  <span className="text-sm leading-relaxed">{action}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )
 
       case "summary":
         return (
-          <div className="p-3">
-            <p className="text-xs text-muted-foreground leading-relaxed">{insights.summary}</p>
+          <div className="p-4 space-y-4">
+            <h4 className="font-medium text-sm">AI Summary</h4>
+            <div className="p-4 bg-background rounded border">
+              <p className="text-sm text-muted-foreground leading-relaxed">{insights.summary}</p>
+            </div>
+            <div className="space-y-2">
+              <h5 className="font-medium text-sm">Key Highlights</h5>
+              <ul className="space-y-1">
+                <li className="text-sm flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
+                  23% revenue increase achieved
+                </li>
+                <li className="text-sm flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
+                  Marketing campaign success
+                </li>
+                <li className="text-sm flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 bg-purple-500 rounded-full"></div>
+                  Strategic planning initiated
+                </li>
+              </ul>
+            </div>
           </div>
         )
 
       case "participants":
         return (
-          <div className="p-3 space-y-2">
-            {insights.participants.map((participant, index) => (
-              <div key={index} className="flex items-center justify-between p-2 bg-background rounded border">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center">
-                    <User className="w-3 h-3" />
+          <div className="p-4 space-y-4">
+            <h4 className="font-medium text-sm">Call Participants</h4>
+            <div className="space-y-3">
+              {insights.participants.map((participant, index) => (
+                <div key={index} className="flex items-center justify-between p-3 bg-background rounded border">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
+                      <User className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="font-medium text-sm">{participant.name}</div>
+                      <div className="text-xs text-muted-foreground">{participant.speakingTime}% speaking time</div>
+                    </div>
                   </div>
-                  <span className="text-xs font-medium">{participant.name}</span>
+                  <Badge variant="outline" className="text-xs">
+                    {participant.sentiment}
+                  </Badge>
                 </div>
-                <Badge variant="outline" className="text-xs">
-                  {participant.sentiment}
-                </Badge>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )
 
       case "timeline":
         return (
-          <div className="p-3 space-y-2">
-            {insights.timeline.map((event, index) => (
-              <div key={index} className="flex items-center gap-2 text-xs">
-                <span className="text-muted-foreground font-mono">{event.time}</span>
-                <div
-                  className={`w-2 h-2 rounded-full ${event.type === "join" ? "bg-green-500" : event.type === "leave" ? "bg-red-500" : "bg-blue-500"}`}
-                ></div>
-                <span>{event.event}</span>
-              </div>
-            ))}
+          <div className="p-4 space-y-4">
+            <h4 className="font-medium text-sm">Call Timeline</h4>
+            <div className="space-y-3">
+              {insights.timeline.map((event, index) => (
+                <div key={index} className="flex items-center gap-3">
+                  <div className="text-xs text-muted-foreground font-mono w-12">{event.time}</div>
+                  <div
+                    className={`w-3 h-3 rounded-full flex-shrink-0 ${
+                      event.type === "join" ? "bg-green-500" : event.type === "leave" ? "bg-red-500" : "bg-blue-500"
+                    }`}
+                  ></div>
+                  <span className="text-sm">{event.event}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )
 
       default:
-        return <div className="p-3 text-xs text-muted-foreground">Panel content</div>
+        return <div className="p-4 text-sm text-muted-foreground">Panel content</div>
     }
   }
 
@@ -525,8 +564,6 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
       </Card>
     )
   }
-
-  const insightPanelsWidth = size.width - transcriptionWidth - 20
 
   return (
     <Card ref={dialogRef} style={getWindowStyle()} className="shadow-2xl border-2 overflow-hidden">
@@ -624,10 +661,10 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
           </div>
         </div>
 
-        {/* Main Content Area - Unified View */}
+        {/* Main Content Area */}
         <div className="flex-1 overflow-hidden flex">
-          {/* Left Panel - Live Transcription */}
-          <div className="flex flex-col border-r" style={{ width: `${transcriptionWidth}px` }}>
+          {/* Transcription Panel - Always Present */}
+          <div className="flex flex-col border-r" style={{ width: `${layoutConfig.transcriptionWidth}%` }}>
             <div className="p-4 border-b bg-muted/30">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -668,92 +705,113 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
             </ScrollArea>
           </div>
 
-          {/* Transcription Resize Handle */}
-          <div
-            ref={transcriptionResizeRef}
-            className="w-1 cursor-col-resize hover:bg-blue-200 transition-colors flex items-center justify-center group"
-            onMouseDown={handleTranscriptionResizeStart}
-          >
-            <GripVertical className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-          </div>
-
-          {/* Right Panel - Multiple Insight Panels */}
-          <div className="flex flex-col bg-muted/20" style={{ width: `${insightPanelsWidth}px` }}>
-            <div className="p-4 border-b flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Brain className="w-4 h-4" />
-                <h3 className="font-medium">Real-time Insights</h3>
+          {/* Insights Panel Area */}
+          {insightPanels.length > 0 && (
+            <div className="flex-1 flex flex-col">
+              {/* Insights Header */}
+              <div className="p-4 border-b bg-muted/30 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Brain className="w-4 h-4" />
+                  <h3 className="font-medium">Real-time Insights</h3>
+                  <Badge variant="outline" className="text-xs">
+                    {insightPanels.length}/4 panels
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-1">
+                  {availablePanelTypes
+                    .filter((type) => !insightPanels.some((panel) => panel.type === type.type))
+                    .slice(0, 4 - insightPanels.length)
+                    .map((type) => (
+                      <Button
+                        key={type.type}
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => addPanel(type.type)}
+                        className="h-7 px-2 text-xs"
+                        title={`Add ${type.title}`}
+                      >
+                        <Plus className="w-3 h-3 mr-1" />
+                        {type.title}
+                      </Button>
+                    ))}
+                </div>
               </div>
-              <div className="flex items-center gap-1">
-                {availablePanelTypes
-                  .filter((type) => !insightPanels.some((panel) => panel.type === type.type))
-                  .map((type) => (
-                    <Button
-                      key={type.type}
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => addPanel(type.type)}
-                      className="h-6 w-6 p-0"
-                      title={`Add ${type.title}`}
-                    >
-                      <Plus className="w-3 h-3" />
-                    </Button>
-                  ))}
-              </div>
-            </div>
 
-            <ScrollArea className="flex-1">
-              <div className="space-y-0">
-                {insightPanels.map((panel, index) => (
-                  <div key={panel.id} className="border-b last:border-b-0">
-                    {/* Panel Header */}
-                    <div className="p-3 bg-background/50 border-b flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <panel.icon className="w-4 h-4" />
-                        <h4 className="font-medium text-sm">{panel.title}</h4>
+              {/* Insights Grid */}
+              <div className="flex-1 overflow-hidden">
+                {layoutConfig.insightColumns === 1 ? (
+                  // Single column layout (1-2 panels)
+                  <div className="h-full flex flex-col">
+                    {insightPanels.map((panel, index) => (
+                      <div key={panel.id} className="flex-1 border-b last:border-b-0 flex flex-col">
+                        <div className="p-2 bg-background/50 border-b flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <panel.icon className="w-4 h-4" />
+                            <h4 className="font-medium text-sm">{panel.title}</h4>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removePanel(panel.id)}
+                            className="h-6 w-6 p-0"
+                          >
+                            <X className="w-3 h-3" />
+                          </Button>
+                        </div>
+                        <ScrollArea className="flex-1">{renderPanelContent(panel)}</ScrollArea>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => togglePanelCollapse(panel.id)}
-                          className="h-6 w-6 p-0"
-                        >
-                          {panel.isCollapsed ? <Plus className="w-3 h-3" /> : <Minimize2 className="w-3 h-3" />}
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => removePanel(panel.id)} className="h-6 w-6 p-0">
-                          <X className="w-3 h-3" />
-                        </Button>
-                      </div>
-                    </div>
-
-                    {/* Panel Content */}
-                    {!panel.isCollapsed && (
-                      <div style={{ height: `${panel.height}px` }} className="overflow-auto">
-                        {renderPanelContent(panel)}
-                      </div>
-                    )}
-
-                    {/* Panel Resize Handle */}
-                    {!panel.isCollapsed && index < insightPanels.length - 1 && <PanelResizeHandle panelId={panel.id} />}
+                    ))}
                   </div>
-                ))}
-              </div>
-            </ScrollArea>
-
-            {/* Quick Actions */}
-            <div className="p-3 border-t bg-background/50">
-              <div className="space-y-2">
-                <Button size="sm" className="w-full text-xs h-8">
-                  <Zap className="w-3 h-3 mr-2" />
-                  Generate Report
-                </Button>
-                <Button variant="outline" size="sm" className="w-full text-xs h-8 bg-transparent">
-                  Export All Data
-                </Button>
+                ) : (
+                  // Two column layout (3-4 panels)
+                  <div className="h-full flex">
+                    <div className="flex-1 border-r flex flex-col">
+                      {insightPanels.slice(0, 2).map((panel, index) => (
+                        <div key={panel.id} className="flex-1 border-b last:border-b-0 flex flex-col">
+                          <div className="p-2 bg-background/50 border-b flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <panel.icon className="w-4 h-4" />
+                              <h4 className="font-medium text-sm">{panel.title}</h4>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removePanel(panel.id)}
+                              className="h-6 w-6 p-0"
+                            >
+                              <X className="w-3 h-3" />
+                            </Button>
+                          </div>
+                          <ScrollArea className="flex-1">{renderPanelContent(panel)}</ScrollArea>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex-1 flex flex-col">
+                      {insightPanels.slice(2, 4).map((panel, index) => (
+                        <div key={panel.id} className="flex-1 border-b last:border-b-0 flex flex-col">
+                          <div className="p-2 bg-background/50 border-b flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <panel.icon className="w-4 h-4" />
+                              <h4 className="font-medium text-sm">{panel.title}</h4>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removePanel(panel.id)}
+                              className="h-6 w-6 p-0"
+                            >
+                              <X className="w-3 h-3" />
+                            </Button>
+                          </div>
+                          <ScrollArea className="flex-1">{renderPanelContent(panel)}</ScrollArea>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Main Window Resize Handle */}
