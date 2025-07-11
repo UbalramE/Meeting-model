@@ -23,9 +23,16 @@ import {
   MessageSquare,
   BarChart3,
   Brain,
-  Clock,
   User,
   Zap,
+  Plus,
+  X,
+  GripVertical,
+  TrendingUp,
+  Target,
+  FileText,
+  Users,
+  Calendar,
 } from "lucide-react"
 
 interface CallDialogProps {
@@ -45,17 +52,28 @@ interface TranscriptionEntry {
   confidence: number
 }
 
+interface InsightPanel {
+  id: string
+  title: string
+  icon: React.ComponentType<{ className?: string }>
+  type: "sentiment" | "analytics" | "keywords" | "actions" | "summary" | "participants" | "timeline"
+  height: number
+  isCollapsed: boolean
+}
+
 interface InsightData {
   sentiment: "positive" | "neutral" | "negative"
   keywords: string[]
   topics: string[]
   actionItems: string[]
   summary: string
+  participants: Array<{ name: string; speakingTime: number; sentiment: string }>
+  timeline: Array<{ time: string; event: string; type: "join" | "leave" | "action" }>
 }
 
 export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100 } }: CallDialogProps) {
   const [position, setPosition] = useState(initialPosition)
-  const [size, setSize] = useState({ width: 800, height: 600 })
+  const [size, setSize] = useState({ width: 1000, height: 700 })
   const [windowState, setWindowState] = useState<WindowState>("normal")
   const [callState, setCallState] = useState<CallState>("idle")
   const [isMuted, setIsMuted] = useState(false)
@@ -64,10 +82,28 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
   const [isResizing, setIsResizing] = useState(false)
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
   const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 0, height: 0 })
-  const [selectedInsight, setSelectedInsight] = useState("transcription")
+  const [transcriptionWidth, setTranscriptionWidth] = useState(500)
+  const [isResizingTranscription, setIsResizingTranscription] = useState(false)
+  const [resizeTranscriptionStart, setResizeTranscriptionStart] = useState({ x: 0, width: 0 })
 
   const dialogRef = useRef<HTMLDivElement>(null)
   const resizeRef = useRef<HTMLDivElement>(null)
+  const transcriptionResizeRef = useRef<HTMLDivElement>(null)
+
+  // Default insight panels
+  const [insightPanels, setInsightPanels] = useState<InsightPanel[]>([
+    { id: "sentiment", title: "Sentiment", icon: BarChart3, type: "sentiment", height: 120, isCollapsed: false },
+    { id: "analytics", title: "Analytics", icon: TrendingUp, type: "analytics", height: 150, isCollapsed: false },
+    { id: "keywords", title: "Keywords", icon: Zap, type: "keywords", height: 100, isCollapsed: false },
+    { id: "actions", title: "Actions", icon: Target, type: "actions", height: 180, isCollapsed: false },
+  ])
+
+  // Available panel types for adding
+  const availablePanelTypes = [
+    { type: "summary" as const, title: "AI Summary", icon: FileText },
+    { type: "participants" as const, title: "Participants", icon: Users },
+    { type: "timeline" as const, title: "Timeline", icon: Calendar },
+  ]
 
   // Mock transcription data
   const [transcriptions, setTranscriptions] = useState<TranscriptionEntry[]>([
@@ -90,14 +126,25 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
   // Mock insights data
   const insights: InsightData = {
     sentiment: "positive",
-    keywords: ["revenue", "quarterly", "results", "growth", "performance"],
-    topics: ["Financial Performance", "Quarterly Review", "Revenue Growth"],
+    keywords: ["revenue", "quarterly", "results", "growth", "performance", "team", "success", "metrics"],
+    topics: ["Financial Performance", "Quarterly Review", "Revenue Growth", "Team Performance"],
     actionItems: [
       "Follow up on Q4 projections",
       "Schedule team meeting for next week",
       "Prepare detailed revenue breakdown",
+      "Review marketing strategy",
+      "Update stakeholder presentation",
     ],
-    summary: "Positive quarterly review discussing 23% revenue growth and planning next steps.",
+    summary: "Positive quarterly review discussing 23% revenue growth and planning next steps for continued success.",
+    participants: [
+      { name: "John Doe", speakingTime: 60, sentiment: "positive" },
+      { name: "Sarah Smith", speakingTime: 40, sentiment: "positive" },
+    ],
+    timeline: [
+      { time: "10:30", event: "John Doe joined", type: "join" },
+      { time: "10:31", event: "Sarah Smith joined", type: "join" },
+      { time: "10:35", event: "Screen sharing started", type: "action" },
+    ],
   }
 
   // Simulate live transcription
@@ -107,24 +154,34 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
         const newTranscription: TranscriptionEntry = {
           id: Date.now().toString(),
           speaker: Math.random() > 0.5 ? "John Doe" : "Sarah Smith",
-          text: "This is a simulated live transcription entry...",
+          text: "This is a simulated live transcription entry with more detailed content...",
           timestamp: new Date().toLocaleTimeString(),
           confidence: 0.85 + Math.random() * 0.15,
         }
         setTranscriptions((prev) => [...prev, newTranscription])
-      }, 5000)
+      }, 8000)
 
       return () => clearInterval(interval)
     }
   }, [callState])
 
-  // Drag handlers
+  // Main window drag handlers
   const handleMouseDown = (e: React.MouseEvent) => {
     if (windowState === "maximized") return
     setIsDragging(true)
     setDragStart({
       x: e.clientX - position.x,
       y: e.clientY - position.y,
+    })
+  }
+
+  // Transcription panel resize handlers
+  const handleTranscriptionResizeStart = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setIsResizingTranscription(true)
+    setResizeTranscriptionStart({
+      x: e.clientX,
+      width: transcriptionWidth,
     })
   }
 
@@ -136,18 +193,26 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
       })
     }
     if (isResizing) {
-      const newWidth = Math.max(400, resizeStart.width + (e.clientX - resizeStart.x))
-      const newHeight = Math.max(300, resizeStart.height + (e.clientY - resizeStart.y))
+      const newWidth = Math.max(600, resizeStart.width + (e.clientX - resizeStart.x))
+      const newHeight = Math.max(400, resizeStart.height + (e.clientY - resizeStart.y))
       setSize({ width: newWidth, height: newHeight })
+    }
+    if (isResizingTranscription) {
+      const newWidth = Math.max(
+        300,
+        Math.min(size.width - 350, resizeTranscriptionStart.width + (e.clientX - resizeTranscriptionStart.x)),
+      )
+      setTranscriptionWidth(newWidth)
     }
   }
 
   const handleMouseUp = () => {
     setIsDragging(false)
     setIsResizing(false)
+    setIsResizingTranscription(false)
   }
 
-  // Resize handlers
+  // Main window resize handlers
   const handleResizeStart = (e: React.MouseEvent) => {
     e.stopPropagation()
     setIsResizing(true)
@@ -160,7 +225,7 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
   }
 
   useEffect(() => {
-    if (isDragging || isResizing) {
+    if (isDragging || isResizing || isResizingTranscription) {
       document.addEventListener("mousemove", handleMouseMove)
       document.addEventListener("mouseup", handleMouseUp)
       return () => {
@@ -168,7 +233,7 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
         document.removeEventListener("mouseup", handleMouseUp)
       }
     }
-  }, [isDragging, isResizing, dragStart, resizeStart])
+  }, [isDragging, isResizing, isResizingTranscription, dragStart, resizeStart, resizeTranscriptionStart])
 
   const handleMinimize = () => {
     setWindowState("minimized")
@@ -179,7 +244,7 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
   }
 
   const handleClose = () => {
-    if (callState === "active") return // Cannot close during active call
+    if (callState === "active") return
     onClose()
   }
 
@@ -191,6 +256,209 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
   const endCall = () => {
     setCallState("ended")
     setTimeout(() => setCallState("idle"), 1000)
+  }
+
+  // Panel management functions
+  const addPanel = (type: InsightPanel["type"]) => {
+    const panelType = availablePanelTypes.find((p) => p.type === type)
+    if (!panelType) return
+
+    const newPanel: InsightPanel = {
+      id: `${type}-${Date.now()}`,
+      title: panelType.title,
+      icon: panelType.icon,
+      type,
+      height: 150,
+      isCollapsed: false,
+    }
+    setInsightPanels((prev) => [...prev, newPanel])
+  }
+
+  const removePanel = (panelId: string) => {
+    setInsightPanels((prev) => prev.filter((p) => p.id !== panelId))
+  }
+
+  const togglePanelCollapse = (panelId: string) => {
+    setInsightPanels((prev) => prev.map((p) => (p.id === panelId ? { ...p, isCollapsed: !p.isCollapsed } : p)))
+  }
+
+  const resizePanel = (panelId: string, newHeight: number) => {
+    setInsightPanels((prev) => prev.map((p) => (p.id === panelId ? { ...p, height: Math.max(80, newHeight) } : p)))
+  }
+
+  // Panel resize component
+  const PanelResizeHandle = ({ panelId }: { panelId: string }) => {
+    const [isResizingPanel, setIsResizingPanel] = useState(false)
+    const [resizePanelStart, setResizePanelStart] = useState({ y: 0, height: 0 })
+
+    const handlePanelResizeStart = (e: React.MouseEvent) => {
+      e.stopPropagation()
+      setIsResizingPanel(true)
+      const panel = insightPanels.find((p) => p.id === panelId)
+      setResizePanelStart({
+        y: e.clientY,
+        height: panel?.height || 150,
+      })
+    }
+
+    useEffect(() => {
+      const handlePanelMouseMove = (e: MouseEvent) => {
+        if (isResizingPanel) {
+          const newHeight = resizePanelStart.height + (e.clientY - resizePanelStart.y)
+          resizePanel(panelId, newHeight)
+        }
+      }
+
+      const handlePanelMouseUp = () => {
+        setIsResizingPanel(false)
+      }
+
+      if (isResizingPanel) {
+        document.addEventListener("mousemove", handlePanelMouseMove)
+        document.addEventListener("mouseup", handlePanelMouseUp)
+        return () => {
+          document.removeEventListener("mousemove", handlePanelMouseMove)
+          document.removeEventListener("mouseup", handlePanelMouseUp)
+        }
+      }
+    }, [isResizingPanel, resizePanelStart, panelId])
+
+    return (
+      <div
+        className="h-2 cursor-row-resize hover:bg-blue-200 transition-colors flex items-center justify-center group"
+        onMouseDown={handlePanelResizeStart}
+      >
+        <GripHorizontal className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+      </div>
+    )
+  }
+
+  // Render panel content based on type
+  const renderPanelContent = (panel: InsightPanel) => {
+    if (panel.isCollapsed) return null
+
+    switch (panel.type) {
+      case "sentiment":
+        return (
+          <div className="p-3 space-y-3">
+            <div className="flex items-center gap-2">
+              <Badge
+                variant={insights.sentiment === "positive" ? "default" : "secondary"}
+                className={insights.sentiment === "positive" ? "bg-green-100 text-green-800 border-green-200" : ""}
+              >
+                {insights.sentiment.charAt(0).toUpperCase() + insights.sentiment.slice(1)}
+              </Badge>
+            </div>
+            <div className="w-full bg-muted rounded-full h-2">
+              <div
+                className="bg-green-500 h-2 rounded-full transition-all duration-500"
+                style={{ width: insights.sentiment === "positive" ? "75%" : "45%" }}
+              ></div>
+            </div>
+          </div>
+        )
+
+      case "analytics":
+        return (
+          <div className="p-3 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="text-center">
+                <div className="text-lg font-bold">05:23</div>
+                <div className="text-xs text-muted-foreground">Duration</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold">3</div>
+                <div className="text-xs text-muted-foreground">People</div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {insights.participants.map((participant, index) => (
+                <div key={index}>
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-xs">{participant.name}</span>
+                    <span className="text-xs text-muted-foreground">{participant.speakingTime}%</span>
+                  </div>
+                  <div className="w-full bg-muted rounded-full h-1.5">
+                    <div
+                      className={`h-1.5 rounded-full transition-all duration-500 ${index === 0 ? "bg-blue-500" : "bg-purple-500"}`}
+                      style={{ width: `${participant.speakingTime}%` }}
+                    ></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+
+      case "keywords":
+        return (
+          <div className="p-3">
+            <div className="flex flex-wrap gap-1.5">
+              {insights.keywords.slice(0, 8).map((keyword, index) => (
+                <Badge key={index} variant="secondary" className="text-xs py-0.5 px-2">
+                  {keyword}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )
+
+      case "actions":
+        return (
+          <div className="p-3 space-y-2">
+            {insights.actionItems.slice(0, 4).map((action, index) => (
+              <div key={index} className="flex items-start gap-2 p-2 bg-background rounded border text-xs">
+                <div className="w-3 h-3 border rounded mt-0.5 flex-shrink-0"></div>
+                <span className="leading-relaxed">{action}</span>
+              </div>
+            ))}
+          </div>
+        )
+
+      case "summary":
+        return (
+          <div className="p-3">
+            <p className="text-xs text-muted-foreground leading-relaxed">{insights.summary}</p>
+          </div>
+        )
+
+      case "participants":
+        return (
+          <div className="p-3 space-y-2">
+            {insights.participants.map((participant, index) => (
+              <div key={index} className="flex items-center justify-between p-2 bg-background rounded border">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center">
+                    <User className="w-3 h-3" />
+                  </div>
+                  <span className="text-xs font-medium">{participant.name}</span>
+                </div>
+                <Badge variant="outline" className="text-xs">
+                  {participant.sentiment}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        )
+
+      case "timeline":
+        return (
+          <div className="p-3 space-y-2">
+            {insights.timeline.map((event, index) => (
+              <div key={index} className="flex items-center gap-2 text-xs">
+                <span className="text-muted-foreground font-mono">{event.time}</span>
+                <div
+                  className={`w-2 h-2 rounded-full ${event.type === "join" ? "bg-green-500" : event.type === "leave" ? "bg-red-500" : "bg-blue-500"}`}
+                ></div>
+                <span>{event.event}</span>
+              </div>
+            ))}
+          </div>
+        )
+
+      default:
+        return <div className="p-3 text-xs text-muted-foreground">Panel content</div>
+    }
   }
 
   if (!isOpen) return null
@@ -258,6 +526,8 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
     )
   }
 
+  const insightPanelsWidth = size.width - transcriptionWidth - 20
+
   return (
     <Card ref={dialogRef} style={getWindowStyle()} className="shadow-2xl border-2 overflow-hidden">
       {/* Title Bar */}
@@ -266,7 +536,7 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
           <div className="flex items-center gap-2">
             <GripHorizontal className="w-4 h-4 text-muted-foreground" />
             <Phone className="w-4 h-4" />
-            <span className="font-medium">Call Interface</span>
+            <span className="font-medium">Advanced Call Interface</span>
             {callState === "active" && (
               <Badge variant="destructive" className="text-xs animate-pulse">
                 LIVE
@@ -357,7 +627,7 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
         {/* Main Content Area - Unified View */}
         <div className="flex-1 overflow-hidden flex">
           {/* Left Panel - Live Transcription */}
-          <div className="flex-1 border-r flex flex-col">
+          <div className="flex flex-col border-r" style={{ width: `${transcriptionWidth}px` }}>
             <div className="p-4 border-b bg-muted/30">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -398,166 +668,95 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
             </ScrollArea>
           </div>
 
-          {/* Right Panel - All Insights */}
-          <div className="w-80 flex flex-col bg-muted/20">
-            <div className="p-4 border-b">
+          {/* Transcription Resize Handle */}
+          <div
+            ref={transcriptionResizeRef}
+            className="w-1 cursor-col-resize hover:bg-blue-200 transition-colors flex items-center justify-center group"
+            onMouseDown={handleTranscriptionResizeStart}
+          >
+            <GripVertical className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+          </div>
+
+          {/* Right Panel - Multiple Insight Panels */}
+          <div className="flex flex-col bg-muted/20" style={{ width: `${insightPanelsWidth}px` }}>
+            <div className="p-4 border-b flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Brain className="w-4 h-4" />
                 <h3 className="font-medium">Real-time Insights</h3>
               </div>
+              <div className="flex items-center gap-1">
+                {availablePanelTypes
+                  .filter((type) => !insightPanels.some((panel) => panel.type === type.type))
+                  .map((type) => (
+                    <Button
+                      key={type.type}
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => addPanel(type.type)}
+                      className="h-6 w-6 p-0"
+                      title={`Add ${type.title}`}
+                    >
+                      <Plus className="w-3 h-3" />
+                    </Button>
+                  ))}
+              </div>
             </div>
 
-            <ScrollArea className="flex-1 p-4">
-              <div className="space-y-6">
-                {/* Quick Stats */}
-                <div className="grid grid-cols-2 gap-3">
-                  <Card className="p-3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Clock className="w-3 h-3 text-muted-foreground" />
-                      <span className="text-xs font-medium">Duration</span>
-                    </div>
-                    <p className="text-lg font-bold">05:23</p>
-                  </Card>
-                  <Card className="p-3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <User className="w-3 h-3 text-muted-foreground" />
-                      <span className="text-xs font-medium">People</span>
-                    </div>
-                    <p className="text-lg font-bold">3</p>
-                  </Card>
-                </div>
-
-                {/* Sentiment Analysis */}
-                <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <BarChart3 className="w-4 h-4" />
-                    <h4 className="font-medium text-sm">Sentiment</h4>
-                  </div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Badge
-                      variant={insights.sentiment === "positive" ? "default" : "secondary"}
-                      className={
-                        insights.sentiment === "positive" ? "bg-green-100 text-green-800 border-green-200" : ""
-                      }
-                    >
-                      {insights.sentiment.charAt(0).toUpperCase() + insights.sentiment.slice(1)}
-                    </Badge>
-                  </div>
-                  <div className="w-full bg-muted rounded-full h-2">
-                    <div
-                      className="bg-green-500 h-2 rounded-full transition-all duration-500"
-                      style={{ width: insights.sentiment === "positive" ? "75%" : "45%" }}
-                    ></div>
-                  </div>
-                </div>
-
-                {/* Speaking Time */}
-                <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Volume2 className="w-4 h-4" />
-                    <h4 className="font-medium text-sm">Speaking Time</h4>
-                  </div>
-                  <div className="space-y-3">
-                    <div>
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-xs">John Doe</span>
-                        <span className="text-xs text-muted-foreground">60%</span>
+            <ScrollArea className="flex-1">
+              <div className="space-y-0">
+                {insightPanels.map((panel, index) => (
+                  <div key={panel.id} className="border-b last:border-b-0">
+                    {/* Panel Header */}
+                    <div className="p-3 bg-background/50 border-b flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <panel.icon className="w-4 h-4" />
+                        <h4 className="font-medium text-sm">{panel.title}</h4>
                       </div>
-                      <div className="w-full bg-muted rounded-full h-1.5">
-                        <div
-                          className="bg-blue-500 h-1.5 rounded-full transition-all duration-500"
-                          style={{ width: "60%" }}
-                        ></div>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => togglePanelCollapse(panel.id)}
+                          className="h-6 w-6 p-0"
+                        >
+                          {panel.isCollapsed ? <Plus className="w-3 h-3" /> : <Minimize2 className="w-3 h-3" />}
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => removePanel(panel.id)} className="h-6 w-6 p-0">
+                          <X className="w-3 h-3" />
+                        </Button>
                       </div>
                     </div>
-                    <div>
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-xs">Sarah Smith</span>
-                        <span className="text-xs text-muted-foreground">40%</span>
+
+                    {/* Panel Content */}
+                    {!panel.isCollapsed && (
+                      <div style={{ height: `${panel.height}px` }} className="overflow-auto">
+                        {renderPanelContent(panel)}
                       </div>
-                      <div className="w-full bg-muted rounded-full h-1.5">
-                        <div
-                          className="bg-purple-500 h-1.5 rounded-full transition-all duration-500"
-                          style={{ width: "40%" }}
-                        ></div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                    )}
 
-                {/* Key Topics */}
-                <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Brain className="w-4 h-4" />
-                    <h4 className="font-medium text-sm">Key Topics</h4>
+                    {/* Panel Resize Handle */}
+                    {!panel.isCollapsed && index < insightPanels.length - 1 && <PanelResizeHandle panelId={panel.id} />}
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {insights.topics.map((topic, index) => (
-                      <Badge key={index} variant="outline" className="text-xs py-0.5 px-2">
-                        {topic}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Keywords */}
-                <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Zap className="w-4 h-4" />
-                    <h4 className="font-medium text-sm">Keywords</h4>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {insights.keywords.map((keyword, index) => (
-                      <Badge key={index} variant="secondary" className="text-xs py-0.5 px-2">
-                        {keyword}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Action Items */}
-                <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Zap className="w-4 h-4" />
-                    <h4 className="font-medium text-sm">Action Items</h4>
-                  </div>
-                  <div className="space-y-2">
-                    {insights.actionItems.map((action, index) => (
-                      <div key={index} className="flex items-start gap-2 p-2 bg-background rounded border text-xs">
-                        <div className="w-3 h-3 border rounded mt-0.5 flex-shrink-0"></div>
-                        <span className="leading-relaxed">{action}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Summary */}
-                <div>
-                  <div className="flex items-center gap-2 mb-3">
-                    <MessageSquare className="w-4 h-4" />
-                    <h4 className="font-medium text-sm">AI Summary</h4>
-                  </div>
-                  <div className="p-3 bg-background rounded border">
-                    <p className="text-xs text-muted-foreground leading-relaxed">{insights.summary}</p>
-                  </div>
-                </div>
-
-                {/* Quick Actions */}
-                <div className="space-y-2 pt-2 border-t">
-                  <Button size="sm" className="w-full text-xs h-8">
-                    <Zap className="w-3 h-3 mr-2" />
-                    Generate Report
-                  </Button>
-                  <Button variant="outline" size="sm" className="w-full text-xs h-8 bg-transparent">
-                    Export Transcript
-                  </Button>
-                </div>
+                ))}
               </div>
             </ScrollArea>
+
+            {/* Quick Actions */}
+            <div className="p-3 border-t bg-background/50">
+              <div className="space-y-2">
+                <Button size="sm" className="w-full text-xs h-8">
+                  <Zap className="w-3 h-3 mr-2" />
+                  Generate Report
+                </Button>
+                <Button variant="outline" size="sm" className="w-full text-xs h-8 bg-transparent">
+                  Export All Data
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Resize Handle */}
+        {/* Main Window Resize Handle */}
         {windowState === "normal" && (
           <div
             ref={resizeRef}
