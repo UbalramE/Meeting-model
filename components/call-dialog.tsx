@@ -84,6 +84,11 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
   const dialogRef = useRef<HTMLDivElement>(null)
   const resizeRef = useRef<HTMLDivElement>(null)
 
+  // Add these state variables after the existing useState declarations
+  const [panelHeights, setPanelHeights] = useState<Record<string, number>>({})
+  const [resizingPanel, setResizingPanel] = useState<string | null>(null)
+  const [resizeStartData, setResizeStartData] = useState({ y: 0, height: 0 })
+
   // Insight panels - maximum 4 panels
   const [insightPanels, setInsightPanels] = useState<InsightPanel[]>([
     { id: "sentiment", title: "Sentiment Analysis", icon: BarChart3, type: "sentiment" },
@@ -251,15 +256,25 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
   }
 
   useEffect(() => {
-    if (isDragging || isResizing) {
+    if (isDragging || isResizing || resizingPanel) {
       document.addEventListener("mousemove", handleMouseMove)
       document.addEventListener("mouseup", handleMouseUp)
+
+      if (resizingPanel) {
+        document.addEventListener("mousemove", handlePanelMouseMove)
+        document.addEventListener("mouseup", handlePanelMouseUp)
+      }
+
       return () => {
         document.removeEventListener("mousemove", handleMouseMove)
         document.removeEventListener("mouseup", handleMouseUp)
+        if (resizingPanel) {
+          document.removeEventListener("mousemove", handlePanelMouseMove)
+          document.removeEventListener("mouseup", handlePanelMouseUp)
+        }
       }
     }
-  }, [isDragging, isResizing, dragStart, resizeStart])
+  }, [isDragging, isResizing, resizingPanel, dragStart, resizeStart, resizeStartData])
 
   const handleMinimize = () => {
     setWindowState("minimized")
@@ -284,6 +299,9 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
     setTimeout(() => setCallState("idle"), 1000)
   }
 
+  // Add default height constant
+  const DEFAULT_PANEL_HEIGHT = 200
+
   // Panel management functions
   const addPanel = (type: InsightPanel["type"]) => {
     if (insightPanels.length >= 4) return // Maximum 4 panels
@@ -297,11 +315,42 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
       icon: panelType.icon,
       type,
     }
+
+    // Set default height for new panel
+    setPanelHeights((prev) => ({
+      ...prev,
+      [newPanel.id]: DEFAULT_PANEL_HEIGHT,
+    }))
+
     setInsightPanels((prev) => [...prev, newPanel])
   }
 
   const removePanel = (panelId: string) => {
     setInsightPanels((prev) => prev.filter((p) => p.id !== panelId))
+  }
+
+  // Add these functions after the existing panel management functions
+  const handlePanelResizeStart = (e: React.MouseEvent, panelId: string) => {
+    e.stopPropagation()
+    setResizingPanel(panelId)
+    setResizeStartData({
+      y: e.clientY,
+      height: panelHeights[panelId] || DEFAULT_PANEL_HEIGHT,
+    })
+  }
+
+  const handlePanelMouseMove = (e: MouseEvent) => {
+    if (resizingPanel) {
+      const newHeight = Math.max(120, resizeStartData.height + (e.clientY - resizeStartData.y))
+      setPanelHeights((prev) => ({
+        ...prev,
+        [resizingPanel]: newHeight,
+      }))
+    }
+  }
+
+  const handlePanelMouseUp = () => {
+    setResizingPanel(null)
   }
 
   // Render panel content based on type
@@ -499,6 +548,16 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
         return <div className="p-4 text-sm text-muted-foreground">Panel content</div>
     }
   }
+
+  // Add this component before the main return statement
+  const PanelResizeHandle = ({ panelId }: { panelId: string }) => (
+    <div
+      className="h-2 cursor-row-resize hover:bg-blue-200 transition-colors flex items-center justify-center group border-t"
+      onMouseDown={(e) => handlePanelResizeStart(e, panelId)}
+    >
+      <GripHorizontal className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+    </div>
+  )
 
   if (!isOpen) return null
 
@@ -741,33 +800,10 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
               <div className="flex-1 overflow-hidden">
                 {layoutConfig.insightColumns === 1 ? (
                   // Single column layout (1-2 panels)
-                  <div className="h-full flex flex-col">
-                    {insightPanels.map((panel, index) => (
-                      <div key={panel.id} className="flex-1 border-b last:border-b-0 flex flex-col">
-                        <div className="p-2 bg-background/50 border-b flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <panel.icon className="w-4 h-4" />
-                            <h4 className="font-medium text-sm">{panel.title}</h4>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => removePanel(panel.id)}
-                            className="h-6 w-6 p-0"
-                          >
-                            <X className="w-3 h-3" />
-                          </Button>
-                        </div>
-                        <ScrollArea className="flex-1">{renderPanelContent(panel)}</ScrollArea>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  // Two column layout (3-4 panels)
-                  <div className="h-full flex">
-                    <div className="flex-1 border-r flex flex-col">
-                      {insightPanels.slice(0, 2).map((panel, index) => (
-                        <div key={panel.id} className="flex-1 border-b last:border-b-0 flex flex-col">
+                  <ScrollArea className="h-full">
+                    <div className="space-y-0">
+                      {insightPanels.map((panel, index) => (
+                        <div key={panel.id} className="border-b last:border-b-0">
                           <div className="p-2 bg-background/50 border-b flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <panel.icon className="w-4 h-4" />
@@ -782,30 +818,83 @@ export function CallDialog({ isOpen, onClose, initialPosition = { x: 100, y: 100
                               <X className="w-3 h-3" />
                             </Button>
                           </div>
-                          <ScrollArea className="flex-1">{renderPanelContent(panel)}</ScrollArea>
+                          <div
+                            className="overflow-auto"
+                            style={{ height: `${panelHeights[panel.id] || DEFAULT_PANEL_HEIGHT}px` }}
+                          >
+                            {renderPanelContent(panel)}
+                          </div>
+                          {index < insightPanels.length - 1 && <PanelResizeHandle panelId={panel.id} />}
                         </div>
                       ))}
                     </div>
-                    <div className="flex-1 flex flex-col">
-                      {insightPanels.slice(2, 4).map((panel, index) => (
-                        <div key={panel.id} className="flex-1 border-b last:border-b-0 flex flex-col">
-                          <div className="p-2 bg-background/50 border-b flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <panel.icon className="w-4 h-4" />
-                              <h4 className="font-medium text-sm">{panel.title}</h4>
+                  </ScrollArea>
+                ) : (
+                  // Two column layout (3-4 panels)
+                  <div className="h-full flex">
+                    <div className="flex-1 border-r">
+                      <ScrollArea className="h-full">
+                        <div className="space-y-0">
+                          {insightPanels.slice(0, 2).map((panel, index) => (
+                            <div key={panel.id} className="border-b last:border-b-0">
+                              <div className="p-2 bg-background/50 border-b flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <panel.icon className="w-4 h-4" />
+                                  <h4 className="font-medium text-sm">{panel.title}</h4>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => removePanel(panel.id)}
+                                  className="h-6 w-6 p-0"
+                                >
+                                  <X className="w-3 h-3" />
+                                </Button>
+                              </div>
+                              <div
+                                className="overflow-auto"
+                                style={{ height: `${panelHeights[panel.id] || DEFAULT_PANEL_HEIGHT}px` }}
+                              >
+                                {renderPanelContent(panel)}
+                              </div>
+                              {index < Math.min(2, insightPanels.length) - 1 && (
+                                <PanelResizeHandle panelId={panel.id} />
+                              )}
                             </div>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => removePanel(panel.id)}
-                              className="h-6 w-6 p-0"
-                            >
-                              <X className="w-3 h-3" />
-                            </Button>
-                          </div>
-                          <ScrollArea className="flex-1">{renderPanelContent(panel)}</ScrollArea>
+                          ))}
                         </div>
-                      ))}
+                      </ScrollArea>
+                    </div>
+                    <div className="flex-1">
+                      <ScrollArea className="h-full">
+                        <div className="space-y-0">
+                          {insightPanels.slice(2, 4).map((panel, index) => (
+                            <div key={panel.id} className="border-b last:border-b-0">
+                              <div className="p-2 bg-background/50 border-b flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <panel.icon className="w-4 h-4" />
+                                  <h4 className="font-medium text-sm">{panel.title}</h4>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => removePanel(panel.id)}
+                                  className="h-6 w-6 p-0"
+                                >
+                                  <X className="w-3 h-3" />
+                                </Button>
+                              </div>
+                              <div
+                                className="overflow-auto"
+                                style={{ height: `${panelHeights[panel.id] || DEFAULT_PANEL_HEIGHT}px` }}
+                              >
+                                {renderPanelContent(panel)}
+                              </div>
+                              {index < insightPanels.slice(2, 4).length - 1 && <PanelResizeHandle panelId={panel.id} />}
+                            </div>
+                          ))}
+                        </div>
+                      </ScrollArea>
                     </div>
                   </div>
                 )}
